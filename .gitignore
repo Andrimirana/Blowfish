@@ -1,0 +1,13 @@
+# Artefacts de build locaux
+bin-test/
+lib/
+
+# Rapports JaCoCo
+jacoco.exec
+jacoco.xml
+
+# Fichiers IDE
+.DS_Store
+.idea/
+*.iml
+

@@ -33,19 +33,42 @@ jobs:
           rm -rf bin
           mkdir -p bin
           find src -name "*.java" -print0 | xargs -0 javac -encoding UTF-8 -d bin
-      - name: Validate SonarCloud configuration
+      - name: Download test dependencies
         run: |
-          test -f sonar-project.properties || { echo "Missing sonar-project.properties"; exit 1; }
-          echo "Configured Sonar project key:"
-          grep '^sonar.projectKey=' sonar-project.properties || { echo "Missing sonar.projectKey"; exit 1; }
-          echo "Configured Sonar organization:"
-          grep '^sonar.organization=' sonar-project.properties || { echo "Missing sonar.organization"; exit 1; }
-          test -d bin || { echo "Missing bin directory"; exit 1; }
-          find bin -name "*.class" | grep -q . || { echo "No compiled .class files found in bin"; exit 1; }
+          mkdir -p lib
+          curl -fsSL "https://repo1.maven.org/maven2/org/junit/platform/junit-platform-console-standalone/1.10.2/junit-platform-console-standalone-1.10.2.jar" -o lib/junit-standalone.jar
+          curl -fsSL "https://repo1.maven.org/maven2/org/jacoco/org.jacoco.agent/0.8.11/org.jacoco.agent-0.8.11-runtime.jar" -o lib/jacocoagent.jar
+          curl -fsSL "https://repo1.maven.org/maven2/org/jacoco/org.jacoco.cli/0.8.11/org.jacoco.cli-0.8.11-nodeps.jar" -o lib/jacococli.jar
+      - name: Compile tests
+        run: |
+          mkdir -p bin-test
+          javac -encoding UTF-8 -cp "bin:lib/junit-standalone.jar" -d bin-test $(find test -name "*.java")
+      - name: Run tests with JaCoCo
+        run: |
+          java -javaagent:lib/jacocoagent.jar=destfile=jacoco.exec \
+            -cp "bin:bin-test:lib/junit-standalone.jar" \
+            org.junit.platform.console.ConsoleLauncher \
+            --scan-classpath bin-test \
+            --fail-if-no-tests
+      - name: Generate JaCoCo XML report
+        run: |
+          java -jar lib/jacococli.jar report jacoco.exec \
+            --classfiles bin \
+            --sourcefiles src \
+            --xml jacoco.xml
+      - name: Configure SonarCloud New Code period
+        run: |
+          curl -s -o /dev/null -w "New Code period API status: %{http_code}\n" \
+            -u "${SONAR_TOKEN}:" -X POST \
+            "https://sonarcloud.io/api/new_code_periods/set?project=Andrimirana_Blowfish&type=NUMBER_OF_DAYS&value=30"
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       - name: SonarCloud Scan
         uses: SonarSource/sonarqube-scan-action@v7
         with:
-          args: -Dsonar.verbose=true
+          args: >
+            -Dsonar.coverage.jacoco.xmlReportPaths=${{ github.workspace }}/jacoco.xml
+            -Dsonar.qualitygate.wait=true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
